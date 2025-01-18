@@ -1,4 +1,6 @@
 *venv
 *.env
-*check.py
-*__pycache__
+check.py
+__pycache__
+__pycache__/files.cpython-313.pyc
+__pycache__/gemini.cpython-313.pyc
