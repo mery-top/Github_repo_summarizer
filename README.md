@@ -34,7 +34,7 @@
 ### **Built with**
 - Built the interface using Streamlit for simplicity. 
 - To generate detailed descriptions,used Gemini, and for data analysis and visualization, we relied on Python libraries like SciPy and Matplotlib. 
-- Everything is powered by the GitHub API.
+- Everything is powered by the GitHub Access Key.
 
 ---
 
