@@ -97,6 +97,10 @@ def fetch_repo_details(repo_name):
     }
 
 # Plot commit activity
+import pandas as pd
+import streamlit as st
+import plotly.graph_objects as go
+
 def plot_commit_dates(commit_dates):
     # Convert commit dates to pandas datetime format
     dates = pd.to_datetime(commit_dates)
@@ -104,17 +108,20 @@ def plot_commit_dates(commit_dates):
     # Count the number of commits per day
     counts = dates.value_counts().sort_index()
     
-    # Prepare data for the distplot
+    # Prepare data for the plot
     days = counts.index.strftime('%Y-%m-%d').to_list()  # Format dates as strings
     commits_per_day = counts.values.tolist()
 
-    # Create a histogram plot using Plotly
-    fig = ff.create_distplot(
-        [commits_per_day],  # The data to plot
-        [days],             # Labels for each day
-        bin_size=0.1,       # Custom bin size
-        show_hist=True      # Show histogram bars
-    )
+    # Create a bar plot using Plotly
+    fig = go.Figure()
+
+    # Add bar trace for commits per day
+    fig.add_trace(go.Bar(
+        x=days,
+        y=commits_per_day,
+        name="Commits",
+        marker_color='blue'
+    ))
 
     # Update layout to improve appearance
     fig.update_layout(
@@ -122,7 +129,8 @@ def plot_commit_dates(commit_dates):
         xaxis_title="Date",
         yaxis_title="Number of Commits",
         showlegend=False,
-        xaxis_tickangle=45
+        xaxis_tickangle=45,
+        barmode='group'
     )
 
     # Display the plot in Streamlit
