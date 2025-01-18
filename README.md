@@ -17,9 +17,9 @@
 4. Libraries
    ```bash
    pip install streamlit PyGithub python-dotenv streamlit-agraph pandas plotly matplotlib google-generativeai scipy
-  
-
-
+5. Input
+   ```bash
+   owner/repo eg: mery-top/plantey
 
 ## What it Does 
 
