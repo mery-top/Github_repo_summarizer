@@ -1,27 +1,91 @@
-import streamlit as st
-from github import Github
-import pandas as pd
-import matplotlib.pyplot as plt
-from files import fetch_repo_files, extract_code_snippets
-from gemini import generate_ai_description_with_gemini
 import os
+import re
+import streamlit as st
 from dotenv import load_dotenv
-from streamlit_agraph import agraph
+from github import Github
+from streamlit_agraph import agraph, Node, Edge, Config
+from gemini import generate_ai_description_with_gemini
+import pandas as pd
+import plotly.figure_factory as ff
+import matplotlib.pyplot as plt
 
+# Load environment variables
 load_dotenv()
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 github = Github(GITHUB_TOKEN)
 
+# Fetch repository files
+def fetch_repo_files(repo_name):
+    repo = github.get_repo(repo_name)
+    contents = repo.get_contents("")
+    files = []
+    
+    while contents:
+        file_content = contents.pop(0)
+        if file_content.type == "file":
+            files.append(file_content)
+        elif file_content.type == "dir":
+            contents.extend(repo.get_contents(file_content.path))
+    
+    return files
+
+# Extract code snippets from the files
+def extract_code_snippets(files):
+    code_snippets = []
+    for file in files:
+        if file.name.endswith((".py", ".js", ".java", ".jsx", ".json", ".c", ".go", ".ipynb")):  # Adjust extensions as needed
+            content = file.decoded_content.decode("utf-8")
+            code_snippets.append(content[:5000])  # Limit snippet size to avoid token overflow
+    return code_snippets
+
+# Extract function names using regex (customize for different languages)
+def extract_function_names(code):
+    function_names = []
+    
+    # Regex patterns for various language functions
+    patterns = [
+        r"def (\w+)\(",  # Python function definition
+        r"function (\w+)\(",  # JavaScript function definition
+        r"public\s+[\w<>\[\]]+\s+(\w+)\(",  # Java function definition
+        r"(\w+)\s*=\s*function\s*\(",  # JS anonymous function
+        r"func (\w+)\(",  # Go function definition
+        r"fun (\w+)\(",  # Kotlin function definition
+        r"fun (\w+)\s*\(",  # Dart function definition
+        r"^\s*def\s+(\w+)\s*\(",  # Python function definition (indented code in Jupyter)
+        r"(\w+)\s*\(\)\s*{",  # JSX function definition (React function component)
+        r"const\s+(\w+)\s*=\s*\(\)\s*=>\s*{",  # JSX arrow function definition (React)
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, code)
+        function_names.extend(matches)
+    
+    return function_names
+
+# Generate graph from code snippets
+def generate_code_graph(code_snippets):
+    nodes = []
+    edges = []
+    
+    for snippet in code_snippets:
+        function_names = extract_function_names(snippet)  # Extract function names
+        
+        for function in function_names:
+            nodes.append(Node(id=function, label=function))  # Add each function as a node
+        
+        # Example logic to generate edges (if you have related functions, you can customize this)
+        for i in range(len(function_names)-1):
+            edges.append(Edge(source=function_names[i], target=function_names[i+1]))  # Create an edge between functions
+    
+    return nodes, edges
+
+# Function to fetch repo details and commit data
 def fetch_repo_details(repo_name):
     repo = github.get_repo(repo_name)
     commits = repo.get_commits()
     description = repo.description
     commit_dates = [commit.commit.author.date for commit in commits]
-    
-    # Generate AI description with Gemini
-    code_snippets = extract_code_snippets(fetch_repo_files(repo_name))  # Fetch and extract code snippets
-    ai_description = generate_ai_description_with_gemini(code_snippets)  # AI-generated description
     
     return {
         "name": repo_name,
@@ -32,30 +96,37 @@ def fetch_repo_details(repo_name):
         "code_snippets": code_snippets  # Including code snippets
     }
 
+# Plot commit activity
 def plot_commit_dates(commit_dates):
+    # Convert commit dates to pandas datetime format
     dates = pd.to_datetime(commit_dates)
+    
+    # Count the number of commits per day
     counts = dates.value_counts().sort_index()
-    plt.figure(figsize=(10,5))
-    plt.plot(counts.index, counts.values, marker='o', label="Commits")
-    plt.xlabel("Date")
-    plt.ylabel("Number of Commits")
-    plt.title("Commit Activity Over Time")
-    plt.grid()
-    plt.legend()
-    st.pyplot(plt)
+    
+    # Prepare data for the distplot
+    days = counts.index.strftime('%Y-%m-%d').to_list()  # Format dates as strings
+    commits_per_day = counts.values.tolist()
 
-# Create a graph based on code snippets or AI description
-def generate_code_graph(code_snippets):
-    nodes = []
-    edges = []
-    
-    # Assuming code_snippets contains functions or classes in the repository
-    for snippet in code_snippets:
-        nodes.append({'id': snippet['function_name'], 'label': snippet['function_name']})
-        for related_function in snippet['related_functions']:
-            edges.append({'from': snippet['function_name'], 'to': related_function})
-    
-    return {'nodes': nodes, 'edges': edges}
+    # Create a histogram plot using Plotly
+    fig = ff.create_distplot(
+        [commits_per_day],  # The data to plot
+        [days],             # Labels for each day
+        bin_size=0.1,       # Custom bin size
+        show_hist=True      # Show histogram bars
+    )
+
+    # Update layout to improve appearance
+    fig.update_layout(
+        title="Commit Activity Over Time",
+        xaxis_title="Date",
+        yaxis_title="Number of Commits",
+        showlegend=False,
+        xaxis_tickangle=45
+    )
+
+    # Display the plot in Streamlit
+    st.plotly_chart(fig, use_container_width=True)
 
 # Streamlit UI
 st.title("GitHub Repository Summarizer")
@@ -64,22 +135,51 @@ repo_name = st.text_input("Enter the GitHub Repository (owner/repo):")
 if repo_name:
     with st.spinner("Fetching repository details..."):
         try:
-            details = fetch_repo_details(repo_name)
+            # Fetch repo details and extract code snippets
+            files = fetch_repo_files(repo_name)
+            code_snippets = extract_code_snippets(files)  # Extract code snippets from files
+            ai_description = generate_ai_description_with_gemini(code_snippets)  # AI-generated description
+            details = fetch_repo_details(repo_name)  # Get repo details including commits
             
             # Displaying repository details
             st.write(f"### Repository: {details['name']}")
             st.write(f"**Total Commits:** {details['commit_count']}")
-            st.write(f"Repo Description: **{details['description']}**")
-            st.write(f"**AI-Generated Description:** {details['ai_description']}")
+            
+            # Visualize code snippets graph
+            st.write("### Code Snippets Graph")
+            nodes, edges = generate_code_graph(code_snippets)  # Generate graph from code snippets
+            
+            # Define the configuration for rendering the graph
+            config = Config(
+                        width=750,
+                        height=950,
+                        directed=True,
+                        physics=True,
+                        hierarchical=False,
+                        nodes={
+                            "font": {
+                                "color": "white"  # Set node font color to white
+                            }
+                        },
+                        edges={
+                            "font": {
+                                "color": "white"  # Set edge font color to white
+                            }
+                        }
+                    )
+
+            
+            # Display the graph in Streamlit
+            agraph(nodes=nodes, edges=edges, config=config)
+            
+            st.write("### Code Description")
+            st.write(f"{details['ai_description']}")
             
             # Commit activity graph
             st.write("### Commit Activity")
             plot_commit_dates(details['commit_dates'])
             
-            # Visualize code snippets graph
-            st.write("### Code Snippets Graph")
-            code_graph = generate_code_graph(details['code_snippets'])
-            agraph(graph=code_graph)
+            
             
         except Exception as e:
             st.error(f"Error fetching repository details: {e}")
